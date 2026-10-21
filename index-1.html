@@ -1,0 +1,146 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSP with Branch and Bound: Animated Explainer</title>
+<!-- README: open index.html, press Play. Space=play/pause, arrows=seek 5s, F=fullscreen, R=record mode (hides controls). 
+RECORD 1080p: press R, set browser window/fullscreen to 1920x1080, start screen recorder (OBS), press Space; record 6:30; add voice-over using the Narration Script panel (press R again to show it). Timings live in SC and NAR below. -->
+<style>
+*{box-sizing:border-box}body{margin:0;background:#EDE6FB;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#352A45}
+#vp{margin:0 auto;overflow:hidden;position:relative}
+#stage{width:1920px;height:1080px;position:absolute;left:0;top:0;transform-origin:0 0;background:radial-gradient(circle at 12% 8%,#FFF1F7,transparent 45%),radial-gradient(circle at 92% 92%,#E9DDFF,transparent 50%),#FBF8FF;overflow:hidden}
+#stage:before{content:"";position:absolute;inset:0;background-image:radial-gradient(#A78BFA33 2px,transparent 2px);background-size:48px 48px}
+#ch{position:absolute;left:80px;top:44px;font-weight:700;font-size:22px;letter-spacing:.2em;color:#E879A9}
+#ttl{position:absolute;left:80px;top:80px;font-weight:800;font-size:54px;line-height:1.1;color:#4C356E;width:1760px}
+#svg{position:absolute;left:0;top:0}
+#sub{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);max-width:1560px;padding:16px 40px;background:#FFFFFFEB;border:1px solid #D9CCF5;border-radius:20px;box-shadow:0 8px 30px #4C356E22;font-weight:500;font-size:38px;line-height:1.35;color:#4C356E;text-align:center}
+#start{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:5;background:#FBF8FFAA}
+#start button{font-size:44px;padding:26px 70px;border-radius:60px;border:0;background:#A78BFA;color:#fff;font-weight:700;cursor:pointer;box-shadow:0 12px 40px #A78BFA88}
+#bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:#fff;max-width:1920px;margin:0 auto;transition:opacity .4s}
+button,select{font:inherit;border:1px solid #D9CCF5;background:#F5F0FF;color:#4C356E;border-radius:10px;padding:7px 12px;cursor:pointer}button.on{background:#A78BFA;color:#fff}
+#pg{flex:1;min-width:200px;accent-color:#A78BFA}
+#panel{max-width:1200px;margin:16px auto;padding:0 16px 40px}#panel pre{white-space:pre-wrap;background:#fff;border-radius:14px;padding:16px;font:14px/1.5 inherit;max-height:340px;overflow:auto}
+body.rec #bar,body.rec #panel{display:none}body.idle #bar{opacity:0}
+</style></head><body>
+<div id="player"><div id="vp"><div id="stage"><div id="ch"></div><div id="ttl"></div>
+<svg id="svg" width="1920" height="1080" viewBox="0 0 1920 1080"><defs><filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#4C356E" flood-opacity=".12"/></filter><filter id="gl"><feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#E879A9" flood-opacity=".8"/></filter></defs><g id="g"></g></svg>
+<div id="sub"></div><div id="start"><button id="big">▶ Play</button></div></div></div>
+<div id="bar"><button id="pp">▶ Play</button><button id="rs" title="Restart">⟲</button><button id="pv" title="Previous scene">⏮</button><button id="nx" title="Next scene">⏭</button><input id="pg" type="range" min="0" max="390" step="0.1" value="0"><span id="tm"></span>
+<select id="spd"><option value=".75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select><button id="cc" class="on">Subtitles</button><button id="rm">Record mode (R)</button><button id="fs">Fullscreen (F)</button></div></div>
+<div id="panel"><div id="nav"></div><p><button id="tm1" class="on">Show distance matrix</button> <button id="tt1" class="on">Show decision tree</button> <button id="rp">Replay current scene</button> <button id="cp">Copy narration script</button> <button id="dl">Download .txt</button></p><h3>Narration Script</h3><pre id="scr"></pre><p id="facts"></p></div>
+<script>
+const N="ABCDE".split(""),n=5,M=[[0,10,15,20,12],[10,0,35,25,17],[15,35,0,30,28],[20,25,30,0,10],[12,17,28,10,0]],d=(a,b)=>M[a][b],D=390;
+const $=s=>document.querySelector(s),cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x)),pr=(t,a,b)=>cl((t-a)/(b-a)),ez=x=>x*x*(3-2*x),f=x=>x===Infinity?"∞":Number.isInteger(x)?x:x.toFixed(1),rt=r=>r.map(i=>N[i]).join(""),tc=o=>o.reduce((s,c,i)=>s+d(c,o[(i+1)%o.length]),0),mmss=t=>Math.floor(t/60)+":"+String(Math.floor(t%60)).padStart(2,"0");
+const C={lav:"#A78BFA",plum:"#4C356E",pink:"#F4A7C7",rose:"#E879A9",deep:"#BE3A6E",tx:"#352A45",t2:"#786B89",gray:"#DCD2EE"};
+// ---------- Solver: DFS branch and bound, children ordered by lower bound ----------
+// Bound (option B): LB = cost so far + 1/2 * sum of cheapest ALLOWED edge(s) per city. Current city and A need 1 edge to an unvisited city; unvisited cities need 2 edges chosen only among unvisited cities, the current city and A. Edges between visited cities are forbidden.
+function lbOf(r,g){const c=r.at(-1),U=[1,2,3,4].filter(x=>!r.includes(x));if(!U.length)return g+d(c,0);const E=r.length>1?[c,0]:[0];let s=0;
+ if(r.length>1)s+=Math.min(...U.map(u=>d(c,u)))+Math.min(...U.map(u=>d(0,u)));else s+=U.map(u=>d(0,u)).sort((a,b)=>a-b).slice(0,2).reduce((a,b)=>a+b);
+ for(const u of U){const w=U.filter(x=>x!=u).map(x=>d(u,x)).concat(E.map(e=>d(u,e))).sort((a,b)=>a-b);s+=w[0]+w[1]}return g+s/2}
+const ev=[];let inc=Infinity,best=null;
+function visit(r,g,par){const id=ev.length,e={id,par,r,g,lb:lbOf(r,g),inc,st:"open",dep:r.length-1};ev.push(e);
+ if(id&&e.lb>=inc){e.st="prune";return}if(r.length==n){e.cost=e.lb;e.st="best";inc=e.cost;best=r;return}
+ const c=r.at(-1);[1,2,3,4].filter(x=>!r.includes(x)).map(x=>({x,g:g+d(c,x),l:lbOf([...r,x],g+d(c,x))})).sort((a,b)=>a.l-b.l||a.x-b.x).forEach(o=>visit([...r,o.x],o.g,id))}
+visit([0],0,-1);
+const perms=a=>a.length<2?[a]:a.flatMap((x,i)=>perms(a.filter((_,j)=>j!=i)).map(p=>[x,...p])),all=perms([1,2,3,4]).map(p=>[0,...p]),opt=Math.min(...all.map(tc)),nOpt=all.filter(o=>tc(o)==opt).length/2,PC=ev.filter(e=>e.st=="prune").length;
+if(tc(best)!==opt)console.error("Solver/brute-force mismatch");
+const nb=i=>[0,1,2,3,4].filter(x=>x!=i).sort((a,b)=>d(i,a)-d(i,b)||a-b).slice(0,2),sums=N.map((_,i)=>nb(i).reduce((s,x)=>s+d(i,x),0)),TOT=sums.reduce((a,b)=>a+b),LB0=TOT/2;
+const ED=[];for(let i=0;i<5;i++)for(let j=i+1;j<5;j++)ED.push([i,j]);const ei=(a,b)=>ED.findIndex(e=>e[0]==Math.min(a,b)&&e[1]==Math.max(a,b));
+// ---------- Narration (edit times here; independent of animation code) ----------
+const incStr=v=>v===Infinity?"no complete tour yet":v;
+const evText=e=>!e.id?`We start at city A. The lower bound for the whole problem is ${f(e.lb)}, and there is no complete tour yet.`:e.st=="prune"?`Route ${rt(e.r)}: lower bound ${f(e.lb)}, incumbent ${e.inc}. Since ${f(e.lb)} is at least ${e.inc}, we prune this branch.`:e.st=="best"?`Complete tour ${rt(e.r)}A costs ${e.cost}. ${e.inc===Infinity?"This becomes the first incumbent.":`That beats ${e.inc}, so it is the new incumbent.`}`:`Extend to ${rt(e.r)}: cost so far ${e.g}, lower bound ${f(e.lb)}. Incumbent: ${incStr(e.inc)}, so ${e.inc===Infinity?"we keep exploring.":`${f(e.lb)} is below ${e.inc} and we keep exploring.`}`;
+const ow=best.map(i=>N[i]).join(", ")+", back to A",es=best.map((c,i)=>d(c,best[(i+1)%n]));
+const RAW=[
+[0,16,0,"Imagine a salesperson who needs to visit several cities, starting from one city, visiting every other city exactly once, and finally returning to the starting point. The challenge is to find the tour with the minimum total travel distance. This is known as the Travelling Salesman Problem, or TSP."],
+[16,25,0,"A route that looks short may not be the shortest. Here are several tours through the same cities. Branch and Bound finds the best one without checking everything."],
+[25,42,1,"Here are five cities, A to E. Cities are vertices, roads are edges, and each edge weight is a travel distance. The same distances appear in this matrix, which is symmetric, because going from A to B costs the same as going from B to A."],
+[42,55,1,"A valid tour visits each city once and returns to the start. Its cost is the sum of the distances of the edges it uses. Not every edge is used: five cities need exactly five roads. Reversing a tour gives the same cost, so tours come in equivalent pairs."],
+[55,72,2,"How many tours are there? Fix the starting city to remove rotated duplicates. Then n cities give n minus one factorial, divided by two, distinct tours. Five cities give twelve. Ten cities give 181,440. Fifteen cities give over forty-three billion."],
+[72,85,2,"Brute force checks every valid tour, and that quickly becomes expensive. So we ask: can we avoid exploring every possibility? Branch and Bound says yes."],
+[85,103,3,"Branch and Bound has three ideas. Branch: split the big problem into smaller decisions by adding one city at a time. Bound: calculate a lower bound, a value that no completion of this partial route can beat. Prune: discard a branch whose bound cannot beat the best complete tour found so far."],
+[103,120,3,"Each node in the tree is a partial tour, and complete leaves are candidate tours. The rule: if the lower bound is at least the best known complete-tour cost, prune. The bound must be mathematically valid, never above the true best completion, or we might discard the optimal tour."],
+[120,144,4,"Now the bound. At every city, take the two cheapest roads touching it, because any tour uses exactly two edges at each city. Add those two weights for each city, then add up all cities and divide by two, because every tour edge is counted once at each of its two ends."],
+[144,154,4,`Here the city sums are ${sums.join(", ")}, a total of ${TOT}, so the bound is ${f(LB0)}. This is only a lower bound: no tour can cost less, but a tour of exactly that cost may not exist.`],
+[154,165,4,"For a partial route, we add the cost already travelled, then bound the remaining path. The current city and A each need one more edge to an unvisited city, unvisited cities need two, and edges between visited cities are forbidden. The solver uses this degree-based bound."],
+...ev.map((e,i)=>[165+95*i/ev.length,165+95*(i+1)/ev.length,5,evText(e)]),
+[260,280,6,`The search finishes with an optimal tour: ${ow}. Adding the edges ${es.slice(0,-1).join(", ")} and the return edge ${es.at(-1)} gives a total of ${tc(best)}.`],
+[280,305,6,`We verified this by enumerating all twelve distinct tours: the minimum is also ${opt}${nOpt>1?`, and ${nOpt} different tours reach it`:", and only one tour reaches it"}. Brute force examines every tour. Branch and Bound visited ${ev.length} subproblems and pruned ${PC} branches that could not improve the incumbent. It is exact only because branching is exhaustive and every bound is valid.`],
+[305,325,7,"TSP is an NP-hard optimization problem, and in the worst case Branch and Bound is still exponential. Performance depends on the quality of the bound, the branching order, and the starting tour: a strong early tour prunes more."],
+[325,345,7,"To recap. Branch: explore possible next decisions. Bound: estimate the best possible completion cost. Prune: discard branches that cannot beat the best complete solution."],
+[345,360,7,"Explore intelligently. Eliminate what cannot win. Find the best tour."]];
+const chunk=s=>{const o=[];let c="";s.split(" ").forEach(w=>{if((c+" "+w).length>108&&c){o.push(c);c=w}else c=c?c+" "+w:w});if(c)o.push(c);return o};
+const NAR=RAW.map(([a,b,k,t])=>({startTime:a,endTime:b,sceneId:k+1,spokenText:t,subtitleText:chunk(t)})),SUB=[];
+NAR.forEach(x=>{const L=x.subtitleText.join("").length;let a=x.startTime;x.subtitleText.forEach(c=>{const e=a+(x.endTime-x.startTime)*c.length/L;SUB.push({s:a,e,t:c});a=e})});
+const SC=[[0,25,"Opening"],[25,55,"Understand the problem"],[55,85,"Why brute force is expensive"],[85,120,"Branch and Bound intuition"],[120,165,"Bounding: a valid lower estimate"],[165,260,"Worked example: the decision tree"],[260,305,"Reveal and verify the optimal tour"],[305,390,"Complexity, limitations, and recap"]];
+// ---------- SVG helpers ----------
+const PT=N.map((_,i)=>{const a=(-90+72*i)*Math.PI/180;return[250*Math.cos(a),250*Math.sin(a)]}),tx=(x,y,s,t,fl=C.tx,o="")=>`<text x="${x}" y="${y}" font-size="${s}" fill="${fl}" ${o}>${t}</text>`,G=(x,y,s,i)=>`<g transform="translate(${x} ${y}) scale(${s})">${i}</g>`,
+cd=(x,y,w,h,fl="#fff",st="#E4D9F7",o=1)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="${fl}" stroke="${st}" stroke-width="2" filter="url(#sh)" opacity="${o}"/>`;
+const L=(a,b,p,c,w,o=1)=>{const[x1,y1]=PT[a],[x2,y2]=PT[b];return`<line x1="${x1}" y1="${y1}" x2="${x1+(x2-x1)*p}" y2="${y1+(y2-y1)*p}" stroke="${c}" stroke-width="${w}" stroke-linecap="round" opacity="${o}"/>`};
+const RT=(p_,p,c,w,cls)=>{const sg=cls?p_.length:p_.length-1;let s="";for(let i=0;i<sg;i++){const q=cl(p*sg-i);if(q>0)s+=L(p_[i],p_[(i+1)%p_.length],q,c,w)}return s};
+const MK=(p_,p)=>{const sg=p_.length,q=p*sg,i=Math.min(sg-1,Math.floor(q)),a=PT[p_[i]],b=PT[p_[(i+1)%sg]],u=q-i;return`<circle cx="${a[0]+(b[0]-a[0])*u}" cy="${a[1]+(b[1]-a[1])*u}" r="15" fill="${C.rose}" stroke="#fff" stroke-width="4" filter="url(#gl)"/>`};
+const CT=(on={})=>PT.map(([x,y],i)=>`<g transform="translate(${x} ${y}) scale(${on[i]?1.18:1})"><circle r="36" fill="${on[i]?C.lav:"#fff"}" stroke="${C.lav}" stroke-width="4"/><text y="12" text-anchor="middle" font-size="34" font-weight="700" fill="${on[i]?"#fff":C.plum}">${N[i]}</text></g>`).join("");
+const LB=(a,b,i,o=1,c=C.plum)=>{const fr=(a+b)%2||[0,1,2,3,4].includes(Math.abs(a-b))&&(Math.abs(a-b)==1||Math.abs(a-b)==4)?.5:i%2?.3:.7,x=PT[a][0]+(PT[b][0]-PT[a][0])*fr,y=PT[a][1]+(PT[b][1]-PT[a][1])*fr;return`<g transform="translate(${x} ${y})" opacity="${o}"><rect x="-27" y="-20" width="54" height="40" rx="12" fill="#fff" stroke="#E4D9F7"/><text y="10" text-anchor="middle" font-size="28" font-weight="700" fill="${c}">${d(a,b)}</text></g>`};
+const faint=()=>ED.map(([a,b])=>L(a,b,1,C.gray,3)).join("");
+const MX=(x,y,c,hl=()=>0,cnt=99)=>{let s="";for(let i=-1;i<5;i++)for(let j=-1;j<5;j++){const X=x+(j+1)*c,Y=y+(i+1)*c,h=i<0||j<0;let fl=h?"#EFE7FF":"#fff",t=h?N[i<0?j:i]:i==j?"–":(ei(i,j)<cnt?d(i,j):"");if(i<0&&j<0)continue;const k=!h&&hl(i,j);if(k)fl=k;s+=`<rect x="${X}" y="${Y}" width="${c}" height="${c}" fill="${fl}" stroke="#D9CCF5"/>`+tx(X+c/2,Y+c*.65,c*.42,t,C.plum,`text-anchor="middle" font-weight="${h?700:500}"`)}return s};
+const TR=(x0,y0,rh,k,fr=1)=>{const h=Math.min(rh-4,32),X=e=>x0+e.dep*182,Y=e=>y0+e.id*rh;let s="";
+ for(let i=0;i<k;i++){const e=ev[i];if(e.par>=0){const p=ev[e.par];s+=`<path d="M${X(p)+170} ${Y(p)+h/2}H${X(p)+176}V${Y(e)+h/2}H${X(e)}" fill="none" stroke="${C.lav}" stroke-width="2" opacity="${i==k-1?fr:.6}"/>`}}
+ for(let i=0;i<k;i++){const e=ev[i],cu=i==k-1,fl={open:"#EADFFF",prune:"#F9D3E1",best:C.pink}[e.st],sk={open:C.lav,prune:C.deep,best:C.rose}[e.st];
+  s+=`<g opacity="${cu?fr:1}"${cu?' filter="url(#gl)"':""}><rect x="${X(e)}" y="${Y(e)}" width="170" height="${h}" rx="8" fill="${fl}" stroke="${sk}" stroke-width="${cu?4:2}"/>`+tx(X(e)+8,Y(e)+h*.72,h*.72,rt(e.r),C.plum,'font-weight="700"')+tx(X(e)+163,Y(e)+h*.72,h*.62,e.st=="best"?"= "+e.cost:"LB "+f(e.lb)+(e.st=="prune"?" ✕":""),e.st=="prune"?C.deep:C.tx,'text-anchor="end"')+"</g>"}return s};
+const pb=i=>{for(let j=i-1;j>=0;j--)if(ev[j].st=="best")return ev[j].r};
+const PN=[];[1,2,3,4].forEach(l=>{const seen=[];all.forEach((o,li)=>{const k=o.slice(0,l+1).join("");if(!seen.includes(k))seen.push(k)});PN[l]=seen.map(k=>{const idx=all.map((o,li)=>o.slice(0,l+1).join("")==k?li:-1).filter(x=>x>=0);return{k,y:(idx[0]+idx.at(-1))/2}})});
+let showM=1,showT=1;const R=[];
+// ---------- Scenes: each is a pure function of local time ----------
+R[0]=t=>{const tours=[[0,1,2,3,4],[0,2,4,1,3],[0,1,3,2,4],best],st=[2,10.5,13.5,16.5],i=t<10.5?0:t<13.5?1:t<16.5?2:3,p=pr(t,st[i],st[i]+(i?2.5:8)),c=i==3?C.pink:C.lav;
+ let s=G(560,600,1,faint()+RT(tours[i],p,c,i==3?14:10,1)+(i==0&&p<1?MK(tours[0],p):"")+CT(Object.fromEntries(tours[i].map(v=>[v,t>2&&p<1&&i==0?0:0]))));
+ tours.forEach((o,k)=>{if(t>=st[k]+(k?1:7)){const y=300+k*110,b=k==3&&t>=18.5;s+=cd(1030,y-50,780,96,b?"#FFE3EF":"#fff",b?C.rose:"#E4D9F7")+tx(1060,y+10,34,o.map(v=>N[v]).join(" → ")+" → A",C.plum,'font-weight="600"')+tx(1780,y+12,46,tc(o),b?C.deep:C.plum,'text-anchor="end" font-weight="800"')}});
+ return s+(t>=18.5?tx(1030,800,34,"The shortest tour is not always the obvious one.",C.deep,'font-weight="600"'):"")};
+R[1]=t=>{const c=pr(t,1,15)*10,k=Math.floor(c);let s=G(480,570,1,ED.map(([a,b],i)=>i<c?L(a,b,cl(c-i),"#CBBDF0",6):"").join("")+ED.map(([a,b],i)=>c>i+.6?LB(a,b,i):"").join("")+CT());
+ s+=cd(1000,170,840,64,"#FFF1F7","#F4A7C7",pr(t,17,18.5))+tx(1030,213,28,"Tour cost = sum of the distances of all edges in the tour",C.deep,`font-weight="700" opacity="${pr(t,17,18.5)}"`);
+ s+=MX(1040,270,92,()=>0,k+1);return s+tx(1040,870,26,"Reversed tours cost the same, so tours come in equivalent pairs.",C.t2,`opacity="${pr(t,22,24)}"`)};
+R[2]=t=>{let s="";[5,6,8,10,12,15].forEach((m,i)=>{if(t<2+i*3.5)return;const v=[1,2,3,4,5,6,7,8,9,10,11,12,13,14].slice(0,m-1).reduce((a,b)=>a*b,1)/2,y=240+i*92,u=ez(pr(t,2+i*3.5,4.5+i*3.5));
+ s+=tx(100,y+36,38,`n = ${m}`,C.t2,'font-weight="600"')+tx(300,y+40,50,Math.round(v*u).toLocaleString("en-US"),C.deep,'font-weight="800"')+`<rect x="300" y="${y+52}" width="${Math.max(6,560*Math.log10(v+1)/10.7*u)}" height="12" rx="6" fill="${C.pink}"/>`});
+ s+=tx(100,850,28,"(n − 1)! / 2 distinct tours",C.t2);
+ [1,2,3,4].forEach(l=>{if(t<4+l*4)return;const a=pr(t,4+l*4,6+l*4);PN[l].forEach(q=>{const x=1000+l*190,y=250+q.y*22,pp=l==1?{y:250+1.5*22*6}:PN[l-1].find(z=>q.k.startsWith(z.k)),py=pp.y??(250+(pp.y)*0);const Py=l==1?250+11.5*22:250+pp.y*22,Px=1000+(l-1)*190;s+=`<path d="M${Px} ${Py}C${Px+90} ${Py} ${x-90} ${y} ${x} ${y}" fill="none" stroke="${C.lav}" stroke-width="2" opacity="${a*.7}"/><circle cx="${x}" cy="${y}" r="${l==4?7:10}" fill="${l==4?C.pink:C.lav}" opacity="${a}"/>`})});
+ s+=`<circle cx="1000" cy="${250+11.5*22}" r="22" fill="#fff" stroke="${C.lav}" stroke-width="4"/>`+tx(1000,250+11.5*22+10,28,"A",C.plum,'text-anchor="middle" font-weight="700"');
+ return s+tx(1000,832,28,"4 × 3 × 2 × 1 = 24 orderings; reversals pair them into 12 tours.",C.t2,`opacity="${pr(t,20,22)}"`)+tx(1000,885,40,"Can we avoid exploring every possibility?",C.rose,`font-weight="800" opacity="${pr(t,25,27)}"`)};
+R[3]=t=>{let s="";[["BRANCH",C.lav,["Split a large problem into smaller decisions:","add one city at a time to the route."],2],["BOUND",C.rose,["Calculate a valid lower bound on the best","possible completion of a partial route."],9],["PRUNE",C.deep,["Discard a branch when its lower bound cannot","beat the best complete tour already found."],15]].forEach(([h,c,l,a],i)=>{const o=pr(t,a,a+1.5);s+=`<g opacity="${o}" transform="translate(0 ${(1-o)*20})">${cd(90,200+i*205,800,180)}<rect x="90" y="${200+i*205}" width="12" height="180" rx="6" fill="${c}"/>`+tx(130,265+i*205,48,h,c,'font-weight="800"')+tx(130,310+i*205,27,l[0],C.tx)+tx(130,347+i*205,27,l[1],C.tx)+"</g>"});
+ s+=TR(980,200,Math.min(38,740/ev.length),Math.min(14,Math.floor(pr(t,5,32)*15)),1);
+ return s+`<g opacity="${pr(t,19,21)}">${cd(90,830,1740,76,"#FFF1F7",C.rose)}${tx(960,880,36,"If lower bound ≥ best known complete-tour cost, prune the branch.",C.deep,'text-anchor="middle" font-weight="800"')}</g>`};
+R[4]=t=>{const c=cl(Math.floor((t-2)/4.5)+1,0,5);let h="";for(let i=0;i<c;i++)nb(i).forEach(x=>h+=L(i,x,1,C.rose,10));
+ let s=G(450,570,.95,faint()+h+CT(Object.fromEntries(N.map((_,i)=>[i,i==c-1]))));for(let i=0;i<c;i++)s+=tx(960,260+i*60,40,`${N[i]}:  ${nb(i).map(x=>d(i,x)).join(" + ")} = ${sums[i]}`,C.plum,'font-weight="600"');
+ if(t>=26)s+=tx(960,630,40,`Total = ${TOT}`,C.t2,'font-weight="600"')+tx(960,690,52,`LB = ${TOT} ÷ 2 = ${f(LB0)}`,C.deep,'font-weight="800"')+tx(960,726,26,"A lower bound, not necessarily the cost of a real tour.",C.t2);
+ if(t>=34)s+=cd(940,745,900,150,"#fff")+["For a partial route:   LB = cost so far + ½ × (cheapest allowed edges)","Current city and A: one edge to an unvisited city.","Unvisited cities: two edges. Visited–visited edges: forbidden."].map((l,i)=>tx(965,785+i*40,i?26:27,l,i?C.tx:C.deep,'font-weight="600"')).join("");return s};
+R[5]=t=>{const dt=95/ev.length,i=Math.min(ev.length-1,Math.floor(t/dt)),fr=pr(t-i*dt,0,.5),e=ev[i],r=e.r,cp=r.length==n,col=e.st=="prune"?C.deep:cp?C.pink:C.lav,p0=pb(i);
+ let s=G(330,430,.62,faint()+(p0&&!cp?RT(p0,1,C.pink,5,1):"")+RT(r,1,col,cp?12:10,cp)+CT(Object.fromEntries(r.map(v=>[v,1]))));
+ if(showM){const hs=new Set();r.forEach((v,j)=>{const w=r[j+1]??(cp?0:null);if(w!=null){hs.add(v+","+w);hs.add(w+","+v)}});s+=MX(60,650,44,(a,b)=>hs.has(a+","+b)?"#EADFFF":0)}
+ const incNow=e.st=="best"?e.inc===Infinity?e.cost:e.inc+(e.cost-e.inc)*ez(fr):e.inc;
+ s+=cd(600,190,340,160,"#FFF1F7",C.rose)+tx(622,228,22,"Incumbent (upper bound)",C.t2,'font-weight="600"')+tx(622,300,72,f(Math.round(incNow)),C.deep,'font-weight="800"')+tx(622,332,20,"cost of a real complete tour",C.t2);
+ s+=cd(600,370,340,240)+tx(622,410,22,"Lower bound (optimistic)",C.t2,'font-weight="600"')+tx(622,470,40,"Route "+rt(r),C.plum,'font-weight="700"')+tx(622,525,32,"Cost so far: "+e.g,C.tx)+tx(622,575,38,"LB = "+f(e.lb),C.rose,'font-weight="800"');
+ const pm=e.st=="prune",msg=e.id?pm?[`LB ${f(e.lb)} ≥ incumbent ${e.inc}`,"→ prune"]:e.st=="best"?[`Complete tour = ${e.cost}`,"→ new incumbent"]:[`LB ${f(e.lb)} < ${f(e.inc)}`,"→ keep exploring"]:["Root bound "+f(e.lb),"→ expand"];
+ s+=cd(600,640,340,150,pm?"#F9D3E1":"#fff",pm?C.deep:"#E4D9F7")+tx(622,700,30,msg[0],pm?C.deep:C.plum,'font-weight="700"')+tx(622,750,34,msg[1],pm?C.deep:C.lav,'font-weight="800"');
+ return s+(showT?TR(980,190,Math.min(38,740/ev.length),i+1,fr):"")};
+R[6]=t=>{const p=pr(t,2,19.5),k=p*n;let s=G(440,570,1,faint()+RT(best,p,C.pink,14,1)+ED.map(([a,b],i)=>"").join("")+(p<1?MK(best,p):"")+CT(Object.fromEntries(best.map(v=>[v,1]))));
+ let run=0;es.forEach((w,i)=>{if(k>i+.5){run+=w;s+=tx(900,260+i*58,38,`${N[best[i]]} → ${N[best[(i+1)%n]]}`,C.plum,'font-weight="600"')+tx(1200,260+i*58,38,w,C.deep,'font-weight="700"')+tx(1500,260+i*58,32,"running total "+run,C.t2)}});
+ if(t>=18)s+=tx(900,590,50,`${es.join(" + ")} = ${tc(best)}`,C.deep,'font-weight="800"');
+ if(t>=24)s+=tx(900,660,32,`Check: all ${all.length/2} distinct tours enumerated, minimum = ${opt} (${nOpt} tour${nOpt>1?"s":""} reach it).`,C.plum);
+ if(t>=31)s+=cd(880,700,960,190)+tx(910,752,30,"Brute force: examines every one of the 12 tours.",C.t2,'font-weight="600"')+tx(910,806,30,`Branch and Bound: ${ev.length} subproblems visited, ${PC} pruned.`,C.deep,'font-weight="700"')+tx(910,858,26,"Exact when branching is exhaustive and bounds are valid.",C.t2);return s};
+R[7]=t=>{let s="";const bl=["TSP is an NP-hard optimization problem.","Worst-case Branch and Bound is still exponential.","Speed depends on bound quality, branching order, and the starting tour.","A strong initial tour improves pruning.","Exact when implemented correctly, but can still be expensive."],o1=1-pr(t,20,22);
+ bl.forEach((b,i)=>{if(t>=1+i*4)s+=`<g opacity="${o1*pr(t,1+i*4,2.5+i*4)}">${cd(100,230+i*120,1500,96)}<circle cx="150" cy="${278+i*120}" r="12" fill="${C.rose}"/>${tx(190,290+i*120,36,b,C.plum,'font-weight="600"')}</g>`});
+ [["BRANCH",C.lav,"Explore possible next decisions."],["BOUND",C.rose,"Estimate the best possible completion cost."],["PRUNE",C.deep,"Discard branches that cannot beat the best complete solution."]].forEach(([h,c,l],i)=>{const a=22+i*5,o=pr(t,a,a+1.5)*(1-pr(t,44,46));if(o>0)s+=`<g opacity="${o}">${cd(100+i*600,300,540,300)}<rect x="${100+i*600}" y="300" width="540" height="12" rx="6" fill="${c}"/>${tx(130+i*600,400,52,h,c,'font-weight="800"')}${chunk(l).join(" ").split(/(.{22,}?) /).filter(Boolean).slice(0,3).map((q,j)=>tx(130+i*600,460+j*40,28,q,C.tx)).join("")}</g>`});
+ if(t>=45){const p=pr(t,46,56);s+=G(480,580,.95,faint()+RT(best,p,C.pink,14,1)+CT(Object.fromEntries(best.map(v=>[v,1]))));["Explore intelligently.","Eliminate what cannot win.","Find the best tour."].forEach((l,i)=>s+=tx(960,400+i*100,62,l,i==2?C.deep:C.plum,`font-weight="800" opacity="${pr(t,50+i*4,52+i*4)}"`));s+=tx(960,730,36,`Optimal tour: ${rt(best)}A, cost ${opt}`,C.rose,`font-weight="700" opacity="${pr(t,58,60)}"`)}return s};
+// ---------- Player ----------
+let T=0,pl=0,sp=1,last=0,dirty=1,cc=1,idle;
+function render(T){const si=SC.findIndex((s,i)=>T<s[1]||i==7),lt=T-SC[si][0];$("#ch").textContent=`CHAPTER ${si+1} / 8`;$("#ttl").textContent=si==0?(lt<18?"Can We Find the Shortest Possible Tour?":"Travelling Salesman Problem Using Branch and Bound"):SC[si][2];
+ $("#g").innerHTML=R[si](lt);const u=SUB.find(x=>T>=x.s&&T<x.e);$("#sub").style.display=cc&&u?"block":"none";if(u)$("#sub").textContent=u.t;
+ $("#pg").value=T;$("#tm").textContent=mmss(T)+" / "+mmss(D);$("#pp").textContent=pl?"⏸ Pause":"▶ Play";$("#start").style.display=!pl&&T==0?"flex":"none";document.querySelectorAll(".sn").forEach((b,i)=>b.classList.toggle("on",i==si))}
+function frame(ts){if(pl){T+=(ts-last)/1000*sp;if(T>=D){T=D;pl=0}dirty=1}last=ts;if(dirty){render(T);dirty=0}requestAnimationFrame(frame)}
+const seek=x=>{T=cl(x,0,D);dirty=1},play=()=>{if(T>=D)T=0;pl=!pl;dirty=1;wake()},wake=()=>{document.body.classList.remove("idle");clearTimeout(idle);if(pl)idle=setTimeout(()=>document.body.classList.add("idle"),2500)};
+const sceneAt=()=>SC.findIndex((s,i)=>T<s[1]||i==7),fit=()=>{const full=document.fullscreenElement||document.body.classList.contains("rec"),k=Math.min(innerWidth/1920,(innerHeight-(full?0:70))/1080);$("#vp").style.width=1920*k+"px";$("#vp").style.height=1080*k+"px";$("#stage").style.transform=`scale(${k})`};
+$("#pp").onclick=$("#big").onclick=play;$("#rs").onclick=()=>{seek(0);pl=0};$("#pv").onclick=()=>{const s=sceneAt();seek(T-SC[s][0]>3?SC[s][0]:SC[Math.max(0,s-1)][0])};$("#nx").onclick=()=>seek(SC[Math.min(7,sceneAt()+1)][0]);$("#rp").onclick=()=>{seek(SC[sceneAt()][0]);pl=1};
+$("#pg").oninput=e=>seek(+e.target.value);$("#spd").onchange=e=>sp=+e.target.value;$("#cc").onclick=e=>{cc=!cc;e.target.classList.toggle("on",cc);dirty=1};
+$("#tm1").onclick=e=>{showM=!showM;e.target.classList.toggle("on",showM);dirty=1};$("#tt1").onclick=e=>{showT=!showT;e.target.classList.toggle("on",showT);dirty=1};
+const rec=()=>{document.body.classList.toggle("rec");fit()},fs=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();$("#rm").onclick=rec;$("#fs").onclick=fs;
+addEventListener("keydown",e=>{if(e.code=="Space"){e.preventDefault();play()}else if(e.key=="ArrowRight"){seek(T+5)}else if(e.key=="ArrowLeft"){seek(T-5)}else if(e.key=="f"||e.key=="F")fs();else if(e.key=="r"||e.key=="R")rec()});
+addEventListener("resize",fit);document.addEventListener("fullscreenchange",fit);addEventListener("mousemove",wake);
+SC.forEach((s,i)=>{const b=document.createElement("button");b.className="sn";b.textContent=`${i+1}. ${s[2]} (${mmss(s[0])})`;b.onclick=()=>seek(s[0]);$("#nav").append(b)});
+const script=SC.map((s,i)=>`SCENE ${i+1}: ${s[2]}  [${mmss(s[0])}–${mmss(s[1])}]\n`+NAR.filter(x=>x.sceneId==i+1).map(x=>`[${mmss(x.startTime)}] ${x.spokenText}`).join("\n")).join("\n\n");
+$("#scr").textContent=script;$("#cp").onclick=()=>navigator.clipboard.writeText(script);$("#dl").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([script],{type:"text/plain"}));a.download="narration-script.txt";a.click()};
+$("#facts").textContent=`Solver: depth-first Branch and Bound with degree-based lower bound respecting forced/forbidden edges. Optimal tour ${rt(best)}A = ${opt} (brute force agrees; ${nOpt} optimal tour${nOpt>1?"s":""}). ${ev.length} nodes, ${PC} pruned. Duration ${mmss(D)}.`;
+fit();requestAnimationFrame(frame);
+</script></body></html>
